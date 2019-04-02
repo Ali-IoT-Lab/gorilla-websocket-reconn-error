@@ -69,12 +69,15 @@ func main() {
 					err := c.WriteMessage(websocket.TextMessage, []byte(t.String()))
 					if err != nil {
 						log.Println("write:", err)
+						doneR <- struct{}{}
+
 						return
 					}
 				case <-tickerP.C:
 					log.Println("sending ping")
 					c.SetWriteDeadline(time.Now().Add(writeWait))
 					if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
+						doneR <- struct{}{}
 						return
 					}
 
