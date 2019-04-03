@@ -10,7 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var addr = flag.String("addr", "localhost:3500", "http service address")
+var addr = flag.String("addr", "192.168.33.1:3500", "http service address")
 
 const (
 	// Time allowed to write a message to the peer.
@@ -34,10 +34,11 @@ func main() {
 	// signal.Notify(interrupt, os.Interrupt)
 
 	u := url.URL{Scheme: "ws", Host: *addr, Path: "/ws"}
-	done := make(chan struct{})
-	doneR := make(chan struct{})
 
 	for {
+
+		done := make(chan struct{})
+		doneR := make(chan struct{})
 
 		log.Printf("connecting to %s", u.String())
 
@@ -47,18 +48,19 @@ func main() {
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		// defer c.Close()
 
 		//write
 		go func() {
-			ticker := time.NewTicker(time.Second)
-			tickerP := time.NewTicker(pingPeriod)
+			defer close(doneR)
+			defer c.Close()
 
+			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
+
+			tickerP := time.NewTicker(pingPeriod)
 			defer tickerP.Stop()
-			defer func() {
-				log.Println("write closed")
-			}()
+
+			defer log.Println("write closed")
 
 			for {
 				select {
@@ -69,15 +71,12 @@ func main() {
 					err := c.WriteMessage(websocket.TextMessage, []byte(t.String()))
 					if err != nil {
 						log.Println("write:", err)
-						doneR <- struct{}{}
-
 						return
 					}
 				case <-tickerP.C:
 					log.Println("sending ping")
 					c.SetWriteDeadline(time.Now().Add(writeWait))
 					if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
-						doneR <- struct{}{}
 						return
 					}
 
@@ -87,6 +86,8 @@ func main() {
 
 		//read
 		func() {
+			defer close(done)
+			defer c.Close()
 
 			c.SetReadLimit(maxMessageSize)
 			c.SetReadDeadline(time.Now().Add(pongWait))
@@ -95,10 +96,7 @@ func main() {
 				fmt.Println("got a pong from client")
 				return nil
 			})
-			// defer close(done)
-			defer func() {
-				log.Println("read closed")
-			}()
+			defer log.Println("read closed")
 			for {
 				select {
 				case <-doneR:
@@ -108,7 +106,6 @@ func main() {
 					_, message, err := c.ReadMessage()
 					if err != nil {
 						log.Println("read:", err)
-						done <- struct{}{}
 						return
 					}
 					log.Printf("recv: %s", message)
